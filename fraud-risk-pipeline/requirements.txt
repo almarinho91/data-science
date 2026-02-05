@@ -1,0 +1,9 @@
+duckdb
+pandas
+python-dotenv
+requests
+scikit-learn
+fastapi
+uvicorn
+joblib
+pytest
