@@ -1,4 +1,7 @@
 import numpy as np
+import pandas as pd
+from pathlib import Path
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.pipeline import Pipeline
@@ -6,25 +9,19 @@ from sklearn.preprocessing import StandardScaler
 
 from ingestion.db import get_connection
 
+MODEL_DIR = Path("models")
+MODEL_DIR.mkdir(exist_ok=True)
+MODEL_PATH = MODEL_DIR / "fraud_model.joblib"
+
 
 def precision_at_k(y_true, scores, k):
     idx = np.argsort(scores)[::-1][:k]
     return float(y_true[idx].mean())
 
 
-def recall_at_k(y_true, scores, k):
-    idx = np.argsort(scores)[::-1][:k]
-    return float(y_true[idx].sum() / max(y_true.sum(), 1))
-
-
 def main():
     con = get_connection()
-
-    df = con.execute("""
-        SELECT *
-        FROM features.transactions_features
-    """).fetchdf()
-
+    df = con.execute("SELECT * FROM features.transactions_features").fetchdf()
     con.close()
 
     y = df["is_fraud"].astype(int).to_numpy()
@@ -38,20 +35,21 @@ def main():
 
     X = df.drop(columns=drop_cols)
 
-    # time-aware split
+    feature_names = X.columns.tolist()
+
     split = int(len(df) * 0.8)
     X_train, X_test = X.iloc[:split], X.iloc[split:]
     y_train, y_test = y[:split], y[split:]
 
-    model = Pipeline(
+    pipe = Pipeline(
         steps=[
             ("scaler", StandardScaler()),
             ("clf", LogisticRegression(max_iter=3000, class_weight="balanced")),
         ]
     )
 
-    model.fit(X_train, y_train)
-    scores = model.predict_proba(X_test)[:, 1]
+    pipe.fit(X_train, y_train)
+    scores = pipe.predict_proba(X_test)[:, 1]
 
     roc_auc = roc_auc_score(y_test, scores)
     pr_auc = average_precision_score(y_test, scores)
@@ -59,11 +57,22 @@ def main():
     print(f"ROC-AUC: {roc_auc:.4f}")
     print(f"PR-AUC : {pr_auc:.4f}")
 
-    for k in [100, 500, 1000]:
-        print(
-            f"Precision@{k}: {precision_at_k(y_test, scores, k):.4f} | "
-            f"Recall@{k}: {recall_at_k(y_test, scores, k):.4f}"
-        )
+    for k in [100, 500]:
+        print(f"Precision@{k}: {precision_at_k(y_test, scores, k):.4f}")
+
+    # feature importance (logistic regression coefficients)
+    coefs = pipe.named_steps["clf"].coef_[0]
+    importance = pd.DataFrame(
+        {"feature": feature_names, "coef": coefs}
+    ).assign(abs_coef=lambda d: d["coef"].abs()).sort_values("abs_coef", ascending=False)
+
+    print("\nTop 15 features:")
+    print(importance.head(15))
+
+    # save model
+    import joblib
+    joblib.dump(pipe, MODEL_PATH)
+    print(f"\nModel saved to {MODEL_PATH}")
 
 
 if __name__ == "__main__":
