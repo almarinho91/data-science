@@ -1,6 +1,8 @@
+import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
+
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score
@@ -36,6 +38,10 @@ def main():
     X = df.drop(columns=drop_cols)
 
     feature_names = X.columns.tolist()
+
+    META_PATH = MODEL_DIR / "feature_cols.json"
+    META_PATH.write_text(json.dumps(feature_names), encoding="utf-8")
+    print(f"Feature columns saved to {META_PATH}")
 
     split = int(len(df) * 0.8)
     X_train, X_test = X.iloc[:split], X.iloc[split:]
