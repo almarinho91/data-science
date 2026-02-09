@@ -36,7 +36,7 @@ def main():
     model = Pipeline(
         steps=[
             ("prep", pre),
-            ("clf", LogisticRegression(max_iter=2000)),
+            ("clf", LogisticRegression(max_iter=2000, class_weight="balanced")),
         ]
     )
 
@@ -46,6 +46,20 @@ def main():
 
     model.fit(X_train, y_train)
     preds = model.predict_proba(X_test)[:, 1]
+
+    # get feature names after encoding
+    feature_names = model.named_steps["prep"].get_feature_names_out()
+
+    coefs = model.named_steps["clf"].coef_[0]
+
+    imp = (
+        pd.DataFrame({"feature": feature_names, "coef": coefs})
+        .assign(abs_coef=lambda d: d["coef"].abs())
+        .sort_values("abs_coef", ascending=False)
+    )
+
+    print("\nTop 15 features:")
+    print(imp.head(15))
 
     auc = roc_auc_score(y_test, preds)
     print("ROC-AUC:", round(auc, 4))
