@@ -94,6 +94,7 @@ curl -X POST http://127.0.0.1:8000/score -H "Content-Type: application/json" -d 
 ## Project notes
 
 - Dataset is highly imbalanced, which reflects real-world fraud.
+- It shoudbe included in a 'data' folder inside the project: Luqi Liu. (2022). Credit Card Fraud Detection [Data set]. Zenodo. https://doi.org/10.5281/zenodo.7395559
 - Evaluation uses PR-AUC and Precision@K instead of accuracy.
 - Feature engineering includes behavioral deviation (`amount_zscore_24h`), which emerged as the strongest signal.
 - Velocity features are global due to missing customer/device identifiers; in production these would be computed per user or device.
