@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+data/raw/*.csv
+.DS_Store
+.vscode/
+mlruns/
+models/
+reports/
