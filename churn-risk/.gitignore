@@ -9,3 +9,5 @@ data/raw/*.csv
 mlruns/
 models/
 reports/
+src/*.ipynb
+mlflow.db
