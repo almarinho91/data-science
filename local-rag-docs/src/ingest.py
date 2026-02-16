@@ -34,7 +34,7 @@ def main():
         print(filename, len(text))
 
     for filename, text in load_documents():
-        chunks = chunk_text(text, chunk_size=1200, overlap=100)  # fewer chunks
+        chunks = chunk_text(text, chunk_size=200, overlap=40)  
         for c in chunks:
             all_chunks.append(
                 {"doc": filename, "chunk_id": c.chunk_id, "text": c.text}
