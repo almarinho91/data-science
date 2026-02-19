@@ -8,8 +8,8 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 
-from src.loaders import iter_documents
-from src.utils import chunk_text
+from src.loaders import iter_document_pages
+from src.utils import clean_pdf_text, chunk_by_paragraphs
 
 DOCS_DIR = Path("data/docs")
 INDEX_DIR = Path("indexes")
@@ -21,57 +21,64 @@ def main():
 
     all_chunks: list[dict] = []
 
-    for filename, text in iter_documents(DOCS_DIR):
-        text = (text or "").strip()
-        print(f"Loaded {filename}: {len(text)} chars")
+    global_chunk_n = 0
 
-        # basic sanity check for PDFs
-        if filename.lower().endswith(".pdf") and len(text) < 5000:
-            print(f"WARNING: PDF extraction looks small for {filename} ({len(text)} chars).")
+    def looks_like_table(t: str) -> bool:
+        letters = sum(ch.isalpha() for ch in t)
+        digits = sum(ch.isdigit() for ch in t)
+        return digits > 80 and letters < 80
 
-        if not text:
+    for dp in iter_document_pages(DOCS_DIR):
+        raw = (dp.text or "").strip()
+        cleaned = clean_pdf_text(raw)
+
+        if dp.page is None:
+            # txt still goes through cleanup safely
+            pass
+
+        print(f"Loaded {dp.doc} page={dp.page}: raw={len(raw)} chars | cleaned={len(cleaned)} chars")
+
+        if dp.doc.lower().endswith(".pdf") and len(cleaned) < 800:
+            print(f"WARNING: very small extracted text for {dp.doc} page {dp.page}")
+
+        if not cleaned:
             continue
 
-        # smaller chunks -> better retrieval precision
-        chunks = chunk_text(text, chunk_size=250, overlap=50)
+        chunks = chunk_by_paragraphs(cleaned, target_size=800, overlap=120)
 
         for c in chunks:
+            if looks_like_table(c.text):
+                continue
             all_chunks.append(
                 {
-                    "doc": filename,
-                    "chunk_id": c.chunk_id,
+                    "doc": dp.doc,
+                    "page": dp.page,
+                    "chunk_id": f"chunk_{global_chunk_n}",
+                    "char_start": c.char_start,
+                    "char_end": c.char_end,
                     "text": c.text,
                 }
             )
 
+            global_chunk_n += 1
+
     if not all_chunks:
-        raise RuntimeError("No chunks produced. Put .txt/.pdf files into data/docs/ and try again.")
+        raise RuntimeError("No chunks produced. Check data/docs and PDF extraction.")
 
     print(f"Total chunks: {len(all_chunks)}")
 
-    # FAISS index (cosine similarity via inner product on normalized vectors)
-    dim = 384  # embedding size for all-MiniLM-L6-v2
+    dim = 384
     index = faiss.IndexFlatIP(dim)
 
     batch_size = 64
     for i in tqdm(range(0, len(all_chunks), batch_size), desc="Embedding + indexing"):
         batch_texts = [c["text"] for c in all_chunks[i : i + batch_size]]
-
-        batch_emb = model.encode(
-            batch_texts,
-            normalize_embeddings=True,
-            batch_size=batch_size,
-            show_progress_bar=False,
-        )
-        X = np.asarray(batch_emb, dtype="float32")
+        emb = model.encode(batch_texts, normalize_embeddings=True, batch_size=batch_size, show_progress_bar=False)
+        X = np.asarray(emb, dtype="float32")
         index.add(X)
 
-    # Save artifacts
     faiss.write_index(index, str(INDEX_DIR / "docs.index"))
-    (INDEX_DIR / "chunks.json").write_text(
-        json.dumps(all_chunks, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    (INDEX_DIR / "chunks.json").write_text(json.dumps(all_chunks, ensure_ascii=False), encoding="utf-8")
 
     print(f"Indexed {len(all_chunks)} chunks")
     print(f"Saved: {INDEX_DIR / 'docs.index'}")

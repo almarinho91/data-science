@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import faiss
@@ -11,47 +10,67 @@ from sentence_transformers import SentenceTransformer
 INDEX_DIR = Path("indexes")
 
 
-def split_sentences(text: str) -> list[str]:
-    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
-    return [s.strip() for s in sentences if s.strip()]
-
-
 def main():
     model = SentenceTransformer("all-MiniLM-L6-v2")
-
     index = faiss.read_index(str(INDEX_DIR / "docs.index"))
     chunks = json.loads((INDEX_DIR / "chunks.json").read_text(encoding="utf-8"))
+
+    # Optional: precompute doc list
+    docs = sorted({c["doc"] for c in chunks})
+    print("Available docs:")
+    for d in docs:
+        print(" -", d)
 
     while True:
         q = input("\nAsk a question (or type 'exit'): ").strip()
         if q.lower() == "exit":
             break
 
-        q_emb = model.encode(q, normalize_embeddings=True).astype("float32")
-        q_emb = np.expand_dims(q_emb, axis=0)
+        doc_filter = input("Filter by doc (enter to skip): ").strip()
+        candidate_idx = list(range(len(chunks)))
 
-        scores, ids = index.search(q_emb, k=3)
+        if doc_filter:
+            candidate_idx = [i for i, c in enumerate(chunks) if c["doc"] == doc_filter]
+            if not candidate_idx:
+                print("No chunks for that doc filter.")
+                continue
 
-        print("\nTop answers:\n")
+        q_emb = model.encode(q, normalize_embeddings=True).astype("float32").reshape(1, -1)
 
-        for rank, (i, s) in enumerate(zip(ids[0], scores[0]), start=1):
-            c = chunks[int(i)]
+        # If filtering, we need a smaller temporary index to search only those vectors
+        if doc_filter:
+            # rebuild a small index from selected vectors
+            # (fine for portfolio; later we can optimize)
+            dim = q_emb.shape[1]
+            tmp = faiss.IndexFlatIP(dim)
 
-            sentences = split_sentences(c["text"])
-            sent_embs = model.encode(sentences, normalize_embeddings=True)
+            # read vectors from main index by reconstruct (works for Flat indexes)
+            vecs = [index.reconstruct(i) for i in candidate_idx]
+            X = np.asarray(vecs, dtype="float32")
+            tmp.add(X)
 
-            q_vec = q_emb.reshape(-1)
+            k = min(3, len(candidate_idx))
+            scores, ids = tmp.search(q_emb, k=k)
 
-            sims = [
-                float(np.dot(q_vec, np.asarray(e, dtype="float32")))
-                for e in sent_embs
-            ]
+            print("\nTop matches:\n")
+            for rank, (local_i, s) in enumerate(zip(ids[0], scores[0]), start=1):
+                global_i = candidate_idx[int(local_i)]
+                c = chunks[global_i]
+                print(f"{rank}) score={float(s):.4f} | {c['doc']} | page={c['page']} | {c['chunk_id']}")
+                print(c["text"][:500], "...")
+                print("-" * 60)
 
-            best_idx = int(np.argmax(sims))
+        else:
+            k = min(3, len(chunks))
+            scores, ids = index.search(q_emb, k=k)
 
-            print(f"{rank}) score={s:.4f} | {c['doc']}")
-            print(sentences[best_idx])
-            print("-" * 60)
+            print("\nTop matches:\n")
+            for rank, (i, s) in enumerate(zip(ids[0], scores[0]), start=1):
+                c = chunks[int(i)]
+                print(f"{rank}) score={float(s):.4f} | {c['doc']} | page={c['page']} | {c['chunk_id']}")
+                snippet = c["text"][:350].replace("\n", " ")
+                rint(snippet + ("..." if len(c["text"]) > 350 else ""))
+                print("-" * 60)
 
 
 if __name__ == "__main__":

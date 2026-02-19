@@ -1,32 +1,39 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Tuple
+from typing import Iterator, Optional
 
 import pdfplumber
 
 
-def load_txt(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
+@dataclass(frozen=True)
+class DocumentPage:
+    doc: str
+    page: Optional[int]  # None for txt
+    text: str
 
 
-def load_pdf(path: Path) -> str:
-    texts = []
+def load_txt(path: Path) -> list[DocumentPage]:
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    return [DocumentPage(doc=path.name, page=None, text=text)]
+
+
+def load_pdf(path: Path) -> list[DocumentPage]:
+    pages: list[DocumentPage] = []
     with pdfplumber.open(str(path)) as pdf:
-        for page in pdf.pages:
+        for i, page in enumerate(pdf.pages, start=1):
             t = page.extract_text() or ""
-            texts.append(t)
-
-    text = "\n".join(texts).replace("\r\n", "\n").strip()
-    return text
+            pages.append(DocumentPage(doc=path.name, page=i, text=t))
+    return pages
 
 
-def iter_documents(docs_dir: Path) -> Iterator[Tuple[str, str]]:
-    for p in sorted(docs_dir.glob("**/*")):
+def iter_document_pages(docs_dir: Path) -> Iterator[DocumentPage]:
+    for p in sorted(docs_dir.rglob("*")):
         if p.is_dir():
             continue
         suf = p.suffix.lower()
         if suf == ".txt":
-            yield (p.name, load_txt(p))
+            yield from load_txt(p)
         elif suf == ".pdf":
-            yield (p.name, load_pdf(p))
+            yield from load_pdf(p)
