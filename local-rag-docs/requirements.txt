@@ -4,3 +4,5 @@ numpy
 pandas
 tqdm
 python-dotenv
+pypdf
+pdfplumber
