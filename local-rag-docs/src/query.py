@@ -38,7 +38,6 @@ def _search_global(index, chunks, q_emb: np.ndarray, k: int) -> list[dict]:
 
 
 def _search_with_doc_filter(index, chunks, q_emb: np.ndarray, doc_filter: str, k: int) -> list[dict]:
-    # portfolio-friendly approach:
     # search a larger K globally, then filter down by doc
     # avoids rebuilding a temporary FAISS index.
     broad_k = min(max(k * 15, 50), len(chunks))
