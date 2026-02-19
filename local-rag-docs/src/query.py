@@ -7,15 +7,50 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from src.answering import pick_best_sentences
+
 INDEX_DIR = Path("indexes")
+
+
+def _load_index_and_chunks():
+    index = faiss.read_index(str(INDEX_DIR / "docs.index"))
+    chunks = json.loads((INDEX_DIR / "chunks.json").read_text(encoding="utf-8"))
+    return index, chunks
+
+
+def _search_global(index, chunks, q_emb: np.ndarray, k: int) -> list[dict]:
+    k = min(k, len(chunks))
+    scores, ids = index.search(q_emb, k=k)
+
+    results = []
+    for i, s in zip(ids[0], scores[0]):
+        c = chunks[int(i)]
+        results.append(
+            {
+                "doc": c.get("doc"),
+                "page": c.get("page"),
+                "chunk_id": c.get("chunk_id"),
+                "text": c.get("text", ""),
+                "score": float(s),
+            }
+        )
+    return results
+
+
+def _search_with_doc_filter(index, chunks, q_emb: np.ndarray, doc_filter: str, k: int) -> list[dict]:
+    # portfolio-friendly approach:
+    # search a larger K globally, then filter down by doc
+    # avoids rebuilding a temporary FAISS index.
+    broad_k = min(max(k * 15, 50), len(chunks))
+    broad = _search_global(index, chunks, q_emb, k=broad_k)
+    filtered = [r for r in broad if r["doc"] == doc_filter]
+    return filtered[:k]
 
 
 def main():
     model = SentenceTransformer("all-MiniLM-L6-v2")
-    index = faiss.read_index(str(INDEX_DIR / "docs.index"))
-    chunks = json.loads((INDEX_DIR / "chunks.json").read_text(encoding="utf-8"))
+    index, chunks = _load_index_and_chunks()
 
-    # Optional: precompute doc list
     docs = sorted({c["doc"] for c in chunks})
     print("Available docs:")
     for d in docs:
@@ -27,50 +62,33 @@ def main():
             break
 
         doc_filter = input("Filter by doc (enter to skip): ").strip()
-        candidate_idx = list(range(len(chunks)))
-
-        if doc_filter:
-            candidate_idx = [i for i, c in enumerate(chunks) if c["doc"] == doc_filter]
-            if not candidate_idx:
-                print("No chunks for that doc filter.")
-                continue
+        k = 5  # retrieve top-k chunks (then we extract best sentences from them)
 
         q_emb = model.encode(q, normalize_embeddings=True).astype("float32").reshape(1, -1)
 
-        # If filtering, we need a smaller temporary index to search only those vectors
         if doc_filter:
-            # rebuild a small index from selected vectors
-            # (fine for portfolio; later we can optimize)
-            dim = q_emb.shape[1]
-            tmp = faiss.IndexFlatIP(dim)
-
-            # read vectors from main index by reconstruct (works for Flat indexes)
-            vecs = [index.reconstruct(i) for i in candidate_idx]
-            X = np.asarray(vecs, dtype="float32")
-            tmp.add(X)
-
-            k = min(3, len(candidate_idx))
-            scores, ids = tmp.search(q_emb, k=k)
-
-            print("\nTop matches:\n")
-            for rank, (local_i, s) in enumerate(zip(ids[0], scores[0]), start=1):
-                global_i = candidate_idx[int(local_i)]
-                c = chunks[global_i]
-                print(f"{rank}) score={float(s):.4f} | {c['doc']} | page={c['page']} | {c['chunk_id']}")
-                print(c["text"][:500], "...")
-                print("-" * 60)
-
+            top_chunks = _search_with_doc_filter(index, chunks, q_emb, doc_filter=doc_filter, k=k)
+            if not top_chunks:
+                print("No matches for that document filter.")
+                continue
         else:
-            k = min(3, len(chunks))
-            scores, ids = index.search(q_emb, k=k)
+            top_chunks = _search_global(index, chunks, q_emb, k=k)
 
-            print("\nTop matches:\n")
-            for rank, (i, s) in enumerate(zip(ids[0], scores[0]), start=1):
-                c = chunks[int(i)]
-                print(f"{rank}) score={float(s):.4f} | {c['doc']} | page={c['page']} | {c['chunk_id']}")
-                snippet = c["text"][:350].replace("\n", " ")
-                rint(snippet + ("..." if len(c["text"]) > 350 else ""))
-                print("-" * 60)
+        answer, sources = pick_best_sentences(model, q, top_chunks, top_sentences=2)
+
+        print("\nAnswer:\n")
+        print(answer if answer else "(no answer found)")
+        print("\nSources:\n")
+        for n, s in enumerate(sources, start=1):
+            print(
+                f"{n}) {s['doc']} | page={s['page']} | {s['chunk_id']} "
+                f"| sent_sim={s['sentence_similarity']:.4f} | chunk_score={s['chunk_score']:.4f}"
+            )
+            snippet = s["sentence"].strip()
+            if len(snippet) > 240:
+                snippet = snippet[:240] + "..."
+            print("   ", snippet)
+        print("-" * 60)
 
 
 if __name__ == "__main__":
