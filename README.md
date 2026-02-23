@@ -12,4 +12,7 @@ More projects will be added over time.
 End-to-end fraud detection project using a public credit card dataset. Includes feature engineering, model training (logistic regression), evaluation with PR-AUC / Precision@K, and a FastAPI service for online risk scoring.
 - ***churn-risk***:
 Small end-to-end data science project focused on predicting customer churn using a public telecom dataset. The goal of this project is to practice and demonstrate a realistic data science workflow, from raw data to a trained and evaluated model, including experiment tracking and model interpretation.
+- ***local-rag-docs***: Tiny, **fully local** RAG (Retrieval-Augmented Generation) for your own `.pdf` / `.txt` files.
+
+
 

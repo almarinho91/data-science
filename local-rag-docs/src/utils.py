@@ -96,7 +96,7 @@ def chunk_by_paragraphs(text: str, target_size: int = 800, overlap: int = 120) -
     cursor = 0  # tracks where we are in the cleaned text
 
     # Build a mapping of paragraph positions by searching sequentially
-    # (good enough for this project; avoids heavy bookkeeping)
+
     pos = 0
     para_positions: List[Tuple[int, int, str]] = []
     for p in paras:

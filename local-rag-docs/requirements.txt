@@ -1,8 +1,8 @@
-sentence-transformers
-faiss-cpu
-numpy
-pandas
-tqdm
-python-dotenv
-pypdf
-pdfplumber
+fastapi>=0.110
+uvicorn>=0.23
+pydantic>=2
+numpy>=1.24
+faiss-cpu>=1.7.4
+sentence-transformers>=2.6
+tqdm>=4.66
+pypdf>=4.0

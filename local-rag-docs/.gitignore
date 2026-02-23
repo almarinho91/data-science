@@ -1,6 +1,23 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
-
-data/docs/*.pdf
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.env.*
+.python-version
+.idea/
+build/
+dist/
+*.egg-info/
+.DS_Store
+Thumbs.db
+.vscode/
 indexes/
+data/docs/*
+!data/docs/sample.txt
+!data/docs/fphy-12-1257512.pdf
+!data/docs/.gitkeep

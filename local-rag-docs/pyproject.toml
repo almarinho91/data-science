@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-rag-docs"
+version = "0.1.0"
+description = "Local RAG over your own documents (FAISS + sentence-transformers)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi==0.110.0",
+  "uvicorn==0.23.2",
+  "pydantic==2.6.4",
+  "numpy==1.26.4",
+  "faiss-cpu==1.7.4",
+  "sentence-transformers==2.6.1",
+  "tqdm==4.66.2",
+  "pypdf==4.0.2",
+]
+
+[project.scripts]
+ragdocs = "src.cli:main"
+
+[tool.setuptools]
+packages = ["src", "api"]
