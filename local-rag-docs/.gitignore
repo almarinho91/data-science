@@ -17,7 +17,6 @@ dist/
 Thumbs.db
 .vscode/
 indexes/
-data/docs/*
 !data/docs/sample.txt
 !data/docs/fphy-12-1257512.pdf
 !data/docs/.gitkeep

@@ -1,0 +1,4 @@
+This is a small test document about churn, fraud, and predictive maintenance projects.
+Churn prediction helps retention teams target customers likely to leave.
+Fraud detection focuses on ranking risk and reducing false positives.
+Predictive maintenance estimates remaining useful life for industrial assets.
