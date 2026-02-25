@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -51,15 +50,16 @@ def _intent(question: str) -> str:
 
 def _extract_terms_from_text(text: str, terms: list[str]) -> list[str]:
     t = _normalize_space(text)
-    found = []
+    found: list[str] = []
     for term in terms:
         # flexible matching (ignore case, allow missing hyphen/space variants)
         pattern = re.escape(term).replace("\\-", "[- ]?")
         if re.search(pattern, t, flags=re.IGNORECASE):
             found.append(term)
+
     # unique, stable order
     seen = set()
-    out = []
+    out: list[str] = []
     for x in found:
         k = x.lower()
         if k not in seen:
@@ -72,13 +72,15 @@ def split_sentences(text: str) -> list[str]:
     t = _normalize_space(text)
     if not t:
         return []
+
     parts = re.split(r"(?<=[.!?])\s+", t)
-    out = []
+    out: list[str] = []
     for s in parts:
         s = s.strip()
         if len(s) < 30:
             continue
         if s.count(" ") < 6 and len(s) > 80:
+            # likely "glued PDF" noise
             continue
         if _contains_stop_phrase(s):
             continue
@@ -96,7 +98,7 @@ def _sentence_rerank(
     q = question.strip()
     q_emb = model.encode(q, normalize_embeddings=True).astype("float32")
 
-    candidates = []
+    candidates: list[dict] = []
     for c in chunks:
         sents = split_sentences(c.get("text", ""))[:max_sentences_per_chunk]
         for s in sents:
@@ -113,7 +115,18 @@ def _sentence_rerank(
     if not candidates:
         if chunks:
             snippet = _normalize_space(chunks[0].get("text", ""))[:260]
-            return snippet, [chunks[0]]
+            # keep schema consistent even in fallback
+            return snippet, [
+                {
+                    "doc": chunks[0].get("doc"),
+                    "page": chunks[0].get("page"),
+                    "chunk_id": chunks[0].get("chunk_id"),
+                    "chunk_score": float(chunks[0].get("score", 0.0)),
+                    "sentence_similarity": None,
+                    "final_score": None,
+                    "sentence": snippet,
+                }
+            ]
         return "", []
 
     sent_texts = [x["sentence"] for x in candidates]
@@ -131,7 +144,8 @@ def _sentence_rerank(
     picked = candidates[:top_sentences]
 
     answer = " ".join([p["sentence"] for p in picked])
-    sources = []
+
+    sources: list[dict] = []
     for p in picked:
         sources.append(
             {
@@ -163,9 +177,9 @@ def pick_best_sentences(
     if intent in {"models", "metrics", "data"}:
         terms = MODEL_TERMS if intent == "models" else METRIC_TERMS if intent == "metrics" else DATA_TERMS
 
-        # search across top chunks
-        found = []
-        best_sources = []
+        found: list[str] = []
+        best_sources: list[dict] = []
+
         for c in chunks:
             hits = _extract_terms_from_text(c.get("text", ""), terms)
             if hits:
@@ -176,12 +190,14 @@ def pick_best_sentences(
                         "page": c.get("page"),
                         "chunk_id": c.get("chunk_id"),
                         "chunk_score": float(c.get("score", 0.0)),
+                        "sentence_similarity": None,
+                        "final_score": None,
                         "sentence": _normalize_space(c.get("text", ""))[:220] + "...",
                     }
                 )
 
-        # unique found
-        uniq = []
+        # unique found (stable order)
+        uniq: list[str] = []
         seen = set()
         for x in found:
             k = x.lower()

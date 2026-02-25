@@ -5,6 +5,9 @@ import logging
 import os
 from pathlib import Path
 
+from src.llm_openai import openai_generate
+from src.prompting import build_prompt
+
 LOG = logging.getLogger("ragdocs")
 
 
@@ -76,12 +79,22 @@ def cmd_query(args: argparse.Namespace) -> int:
         LOG.warning("No results found.")
         return 0
 
-    answer, sources = pick_best_sentences(
-        model,
-        args.question,
-        top_chunks,
-        top_sentences=args.top_sentences,
-    )
+    # Answering
+    if args.use_llm:
+        if not os.environ.get("OPENAI_API_KEY"):
+            LOG.error("OPENAI_API_KEY not set. Put it in .env or environment.")
+            return 3
+
+        prompt = build_prompt(args.question, top_chunks)
+        answer = openai_generate(prompt, model=args.openai_model)
+        sources = top_chunks
+    else:
+        answer, sources = pick_best_sentences(
+            model,
+            args.question,
+            top_chunks,
+            top_sentences=args.top_sentences,
+        )
 
     print("\nAnswer:\n")
     print(answer if answer else "(no answer found)")
@@ -94,14 +107,14 @@ def cmd_query(args: argparse.Namespace) -> int:
 
         sent_sim = s.get("sentence_similarity", None)
         chunk_score = s.get("chunk_score", None)
+        score = s.get("score", None)
 
         sent_sim_str = f"{sent_sim:.4f}" if isinstance(sent_sim, (int, float)) else "n/a"
-        chunk_score_str = f"{chunk_score:.4f}" if isinstance(chunk_score, (int, float)) else "n/a"
+        # if chunk_score missing (LLM mode), fall back to FAISS score
+        score_val = chunk_score if isinstance(chunk_score, (int, float)) else score
+        score_str = f"{score_val:.4f}" if isinstance(score_val, (int, float)) else "n/a"
 
-        print(
-            f"{n}) {doc} | page={page} | {chunk_id} "
-            f"| sent_sim={sent_sim_str} | chunk_score={chunk_score_str}"
-        )
+        print(f"{n}) {doc} | page={page} | {chunk_id} | sent_sim={sent_sim_str} | score={score_str}")
 
         snippet = (s.get("sentence") or s.get("text") or "").strip()
         if len(snippet) > 240:
@@ -149,6 +162,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="SentenceTransformer model name (env: RAGDOCS_MODEL)",
     )
     p_query.add_argument("--index-dir", default="indexes", help="Where docs.index + chunks.json live")
+
+    # LLM options
+    p_query.add_argument("--use-llm", action="store_true", help="Use OpenAI LLM to generate final answer")
+    p_query.add_argument(
+        "--openai-model",
+        default=os.environ.get("RAGDOCS_OPENAI_MODEL", "gpt-4.1-mini"),
+        help="OpenAI model name (env: RAGDOCS_OPENAI_MODEL)",
+    )
+
     p_query.set_defaults(func=cmd_query)
 
     p_serve = sub.add_parser("serve", help="Run the FastAPI server")
