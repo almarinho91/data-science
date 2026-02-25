@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 from pathlib import Path
 
 from src.llm_openai import openai_generate
@@ -14,6 +15,33 @@ LOG = logging.getLogger("ragdocs")
 def _setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s | %(name)s | %(message)s")
+
+
+def _looks_like_references(text: str) -> bool:
+    """Heuristic filter to drop bibliography / references-like chunks."""
+    t = (text or "").strip()
+    if len(t) < 180:
+        return True
+
+    low = t.lower()
+
+    # Common signals of references / bibliography
+    if "references" in low:
+        return True
+    if "doi:" in low:
+        return True
+    if re.search(r"\b(et al\.?|pp\.|vol\.|no\.)\b", low):
+        # not always bad, but often references; keep it conservative
+        # We'll only drop if also looks citation-heavy
+        if re.search(r"\b(19\d{2}|20\d{2})\b", low) and len(re.findall(r"\b\d{4}\b", low)) >= 2:
+            return True
+
+    # Citation-heavy: lots of years and commas, few verbs
+    years = len(re.findall(r"\b(19\d{2}|20\d{2})\b", low))
+    if years >= 3 and "," in t:
+        return True
+
+    return False
 
 
 def cmd_ingest(_: argparse.Namespace) -> int:
@@ -63,6 +91,7 @@ def cmd_query(args: argparse.Namespace) -> int:
         c = chunks[int(i)]
         if args.doc and c.get("doc") != args.doc:
             continue
+
         top_chunks.append(
             {
                 "doc": c.get("doc"),
@@ -79,7 +108,13 @@ def cmd_query(args: argparse.Namespace) -> int:
         LOG.warning("No results found.")
         return 0
 
-    # Answering
+    # --- Filter low-quality chunks (especially for LLM mode) ---
+    filtered_chunks = [c for c in top_chunks if not _looks_like_references(c.get("text", ""))]
+    # If we filtered too aggressively, fall back to original
+    if len(filtered_chunks) >= max(2, min(3, args.k)):
+        top_chunks = filtered_chunks
+
+    # --- Answering ---
     if args.use_llm:
         if not os.environ.get("OPENAI_API_KEY"):
             LOG.error("OPENAI_API_KEY not set. Put it in .env or environment.")
@@ -87,7 +122,7 @@ def cmd_query(args: argparse.Namespace) -> int:
 
         prompt = build_prompt(args.question, top_chunks)
         answer = openai_generate(prompt, model=args.openai_model)
-        sources = top_chunks
+        sources = top_chunks  # in LLM mode, we use retrieved chunks as sources
     else:
         answer, sources = pick_best_sentences(
             model,
@@ -170,7 +205,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("RAGDOCS_OPENAI_MODEL", "gpt-4.1-mini"),
         help="OpenAI model name (env: RAGDOCS_OPENAI_MODEL)",
     )
-
     p_query.set_defaults(func=cmd_query)
 
     p_serve = sub.add_parser("serve", help="Run the FastAPI server")
